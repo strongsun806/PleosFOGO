@@ -38,6 +38,17 @@ class AtlasColors(val night: Boolean) {
  */
 /** Text-size factor for Galmuri so it fits where the previous sans did. */
 const val GALMURI = .9f
+/**
+ * Smallest Hangul size (sp before [AtlasUi.scale]). Galmuri is a pixel face, so it needs more size than a sans
+ * to read at arm's length: on the 1682 px Pleos screen (scale ≈ 1.7) this is ≈ 27 px, glyphs ≈ 25 px tall.
+ * Press Start 2P (Latin caps) keeps its own sizes.
+ */
+const val MIN_TEXT = 16f
+
+/** Figma sizes in frame px ([AtlasUi.fx]): big buttons, segmented tabs, count chips. */
+const val BUTTON = 100
+const val TAB = 76
+const val CHIP = 56
 
 class AtlasUi(private val context: Context, val colors: AtlasColors, val wide: Boolean, val scale: Float = 1f) {
     /** Galmuri11 (Korean pixel font) for all Hangul text; Press Start 2P stays for Latin ticket marks. */
@@ -47,6 +58,8 @@ class AtlasUi(private val context: Context, val colors: AtlasColors, val wide: B
     fun dp(n: Int) = (n * scale * context.resources.displayMetrics.density + .5f).toInt()
     /** Unscaled dp, for sizes already derived from the screen width. */
     fun rawDp(n: Int) = (n * context.resources.displayMetrics.density + .5f).toInt()
+    /** Figma px of the 1700-wide frames (≈ 1 px on the 1682 px Pleos screen), for sizes measured off the design. */
+    fun fx(n: Int) = (n * scale / 1.7f * context.resources.displayMetrics.density + .5f).toInt()
     fun column() = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
     fun row() = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
 
@@ -63,9 +76,11 @@ class AtlasUi(private val context: Context, val colors: AtlasColors, val wide: B
         TextView(context).apply {
             text = value
             // Galmuri runs ~19% wider than the old sans, so it is set a notch smaller to keep the layouts.
-            textSize = size * scale * if (pixel) 1f else GALMURI
+            // Press Start 2P has no Hangul; a "pixel" label with Korean in it uses bold Galmuri instead of a system fallback.
+            val latin = pixel && value.none { it in '\uAC00'..'\uD7A3' }
+            textSize = scale * if (latin) size else maxOf(size * GALMURI, MIN_TEXT)
             setTextColor(color)
-            typeface = if (pixel) displayFont else Typeface.create(textFont, if (bold) 700 else 400, false)
+            typeface = if (latin) displayFont else Typeface.create(textFont, if (bold || pixel) 700 else 400, false)
         }
 
     fun text(parent: LinearLayout, value: String, size: Float = 18f, color: Int = colors.ink,
@@ -80,21 +95,23 @@ class AtlasUi(private val context: Context, val colors: AtlasColors, val wide: B
         parent.addView(this, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
     }
 
-    fun action(value: String, selected: Boolean = false, primary: Boolean = false, enabled: Boolean = true, click: () -> Unit) =
+    /** Big button, 100 px tall like the Figma action bars; tabs pass [height] = [TAB]. */
+    fun action(value: String, selected: Boolean = false, primary: Boolean = false, enabled: Boolean = true,
+               height: Int = BUTTON, fill: Int? = null, click: () -> Unit) =
         Button(context).apply {
             text = value
             isAllCaps = false
-            textSize = 17f * scale * GALMURI
+            textSize = scale * maxOf((if (height < BUTTON) 16f else 17f) * GALMURI, MIN_TEXT)
             typeface = Typeface.create(textFont, 700, false)
-            minHeight = dp(52)
-            minimumHeight = dp(52)
-            val fill = when {
+            minHeight = fx(height)
+            minimumHeight = fx(height)
+            val face = fill ?: when {
                 primary -> colors.lime
                 selected -> if (colors.night) 0xff324963.toInt() else colors.navy
                 else -> colors.paper
             }
-            setTextColor(if (primary) colors.dark else if (selected) colors.white else colors.ink)
-            background = RippleDrawable(ColorStateList.valueOf(0x335b6270), box(fill, shadow = primary), null)
+            setTextColor(if (primary || face == colors.yellow) colors.dark else if (selected || face == colors.navy) colors.white else colors.ink)
+            background = RippleDrawable(ColorStateList.valueOf(0x335b6270), box(face, shadow = primary || fill != null), null)
             setPadding(dp(13), dp(8), dp(13), dp(8))
             isEnabled = enabled
             alpha = if (enabled) 1f else .58f
@@ -110,7 +127,7 @@ class AtlasUi(private val context: Context, val colors: AtlasColors, val wide: B
     fun actions(parent: LinearLayout, items: List<Act>, topMargin: Int = 10) {
         val line = row()
         items.forEachIndexed { index, item ->
-            line.addView(action(item.label, primary = item.primary, enabled = item.enabled, click = item.click),
+            line.addView(action(item.label, primary = item.primary, enabled = item.enabled, fill = item.fill, click = item.click),
                 LinearLayout.LayoutParams(0, -2, item.weight).apply { if (index > 0) marginStart = dp(12) })
         }
         parent.addView(line, LinearLayout.LayoutParams(-1, -2).apply { this.topMargin = dp(topMargin) })
@@ -120,7 +137,9 @@ class AtlasUi(private val context: Context, val colors: AtlasColors, val wide: B
     fun chip(value: String, fill: Int, size: Float = 16f, color: Int = colors.dark, pixel: Boolean = false) =
         label(value, size, color, bold = !pixel, pixel = pixel).apply {
             background = box(fill, colors.dark)
-            setPadding(dp(10), dp(5), dp(10), dp(5))
+            gravity = Gravity.CENTER
+            minHeight = fx(CHIP)
+            setPadding(dp(10), dp(4), dp(10), dp(4))
         }
 
     /** Lays out [views] left to right, wrapping into rows of [perRow]. */
@@ -158,7 +177,7 @@ class AtlasUi(private val context: Context, val colors: AtlasColors, val wide: B
         val line = row()
         container.addView(line)
         choices.forEach { (name, click) ->
-            line.addView(action(name, name == selected, click = click),
+            line.addView(action(name, name == selected, height = TAB, click = click),
                 LinearLayout.LayoutParams(-2, -2).apply { marginEnd = dp(6) })
         }
         parent.addView(container, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
@@ -191,4 +210,4 @@ class AtlasUi(private val context: Context, val colors: AtlasColors, val wide: B
 }
 
 data class Act(val label: String, val primary: Boolean = false, val enabled: Boolean = true,
-               val weight: Float = 1f, val click: () -> Unit)
+               val weight: Float = 1f, val fill: Int? = null, val click: () -> Unit)

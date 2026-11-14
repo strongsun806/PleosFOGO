@@ -131,7 +131,92 @@ class JourneyScreens(private val host: MainActivity, state: Bundle?) {
         ui.strip(body, listOf("지도" to { host.go(Page.ATLAS) }, "지도판" to { host.go(Page.BOARD) }), active)
     }
 
+    /** 지도 · 지도판 segmented tabs (Figma A1/A2), added to [line]. */
+    private fun tabsInto(line: LinearLayout, active: String) {
+        listOf("지도" to Page.ATLAS, "지도판" to Page.BOARD).forEachIndexed { index, (name, page) ->
+            line.addView(ui.action(name, selected = name == active, height = TAB) { if (name != active) host.go(page) },
+                LinearLayout.LayoutParams(-2, -2).apply { if (index > 0) marginStart = ui.fx(6) })
+        }
+    }
+
+    /**
+     * Figma A1 (wide): the fog map fills everything between the rail and a white side panel, with the
+     * tabs, counts and a share button floating on it and the destination card along its bottom.
+     */
     private fun atlas(body: LinearLayout) {
+        if (!ui.wide) return atlasNarrow(body)
+        body.setPadding(0, 0, 0, 0)
+        val line = ui.row().apply { gravity = Gravity.TOP }
+        body.addView(line, LinearLayout.LayoutParams(-1, 0, 1f))
+        val area = FrameLayout(host)
+        line.addView(area, LinearLayout.LayoutParams(0, -1, 956f))
+        area.addView(KoreaBoard(host, ui, host.art, profile.blocks, emptyMap(), key = "atlas", controlsAtTop = false).apply {
+            contentDescription = "안개 지도"
+        }, FrameLayout.LayoutParams(-1, -1))
+        val top = ui.column().apply { setPadding(ui.fx(32), ui.fx(24), ui.fx(28), 0) }
+        area.addView(top, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
+        val head = ui.row()
+        top.addView(head, LinearLayout.LayoutParams(-1, -2))
+        tabsInto(head, "지도")
+        head.addView(View(host), LinearLayout.LayoutParams(0, 1, 1f))
+        head.addView(ui.action("공유", height = TAB) { host.message("폰으로 보내기는 준비 중이에요") },
+            LinearLayout.LayoutParams(ui.fx(140), -2))
+        val counts = ui.row()
+        top.addView(counts, LinearLayout.LayoutParams(-2, -2).apply { topMargin = ui.fx(22) })
+        counts.addView(ui.chip("블록 ${profile.blocks.size}", c.paper, 15f, pixel = true))
+        counts.addView(ui.chip("오늘 +${profile.newBlocksToday()}", c.lime, 15f, pixel = true),
+            LinearLayout.LayoutParams(-2, -2).apply { marginStart = ui.fx(12) })
+        val bar = ui.row().apply {
+            gravity = Gravity.CENTER_VERTICAL
+            background = ui.box(c.paper, shadow = true)
+            setPadding(ui.fx(24), ui.fx(16), ui.fx(20), ui.fx(20))
+        }
+        area.addView(bar, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply {
+            leftMargin = ui.fx(32); rightMargin = ui.fx(28); bottomMargin = ui.fx(28)
+        })
+        val words = ui.column()
+        bar.addView(words, LinearLayout.LayoutParams(0, -2, 1f))
+        val destination = fogo.destination
+        words.addView(ui.label("DESTINATION", 11f, c.muted, pixel = true))
+        words.addView(ui.label(destination?.let { "현재 목적지 · ${it.name}" } ?: "내비에서 목적지를 정하면 미리보기가 열려요", 18f, bold = true))
+        bar.addView(ui.action("목적지 미리보기", height = TAB) { host.go(Page.JOURNEY) },
+            LinearLayout.LayoutParams(-2, -2).apply { marginStart = ui.fx(12) })
+        if (fogo.canOpenReplay || fogo.replayCity != null) {
+            bar.addView(ui.action(if (fogo.replayCity == null) "도시 예시 재생" else "다른 도시 예시", primary = true,
+                enabled = !fogo.replayRunning, height = TAB, click = host::selectReplay),
+                LinearLayout.LayoutParams(-2, -2).apply { marginStart = ui.fx(12) })
+        }
+        line.addView(View(host).apply { setBackgroundColor(c.dark) }, LinearLayout.LayoutParams(ui.fx(3), -1))
+        val panel = ui.column().apply {
+            setBackgroundColor(c.paper)
+            setPadding(ui.fx(36), ui.fx(24), ui.fx(28), ui.fx(29))
+        }
+        line.addView(panel, LinearLayout.LayoutParams(0, -1, 557f))
+        ui.text(panel, "지역별 진행", 22f, bold = true)
+        ui.text(panel, "시·도마다 명소 3곳에 도착하면 자석이 열려요.", 16f, c.muted)
+        catalog.regions.forEach { item ->
+            val percent = progress(item)
+            val row = ui.row().apply {
+                isClickable = true
+                contentDescription = "${item.name} 지역 카드 보기"
+                background = if (item.id == regionId) ui.box(c.fog) else null
+                setPadding(ui.fx(6), ui.fx(8), ui.fx(6), ui.fx(8))
+                setOnClickListener { regionId = item.id; host.go(Page.REGION) }
+            }
+            panel.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.fx(6) })
+            row.addView(ui.label(item.name, 17f, bold = true), LinearLayout.LayoutParams(ui.fx(80), -2))
+            val meter = ui.column()
+            row.addView(meter, LinearLayout.LayoutParams(ui.fx(230), -2).apply { marginEnd = ui.fx(14) })
+            ui.progress(meter, percent)
+            row.addView(ui.label("${(percent * 100).toInt()}%", 13f, c.muted, pixel = true), LinearLayout.LayoutParams(0, -2, 1f))
+            if (profile.owns(item.magnet.id)) row.addView(ui.chip("자석!", c.violet, 13f, c.onViolet))
+            else row.addView(ui.label("명소 ${item.opened(profile)}/3", 16f, c.muted))
+        }
+        panel.addView(View(host), LinearLayout.LayoutParams(1, 0, 1f))
+        panel.addView(ui.action("시·도 상세 보기", height = 84) { host.go(Page.REGION) }, LinearLayout.LayoutParams(-1, -2))
+    }
+
+    private fun atlasNarrow(body: LinearLayout) {
         atlasTabs(body, "지도")
         ui.split(body, { left ->
             val panel = ui.card(left, c.fog)
@@ -303,38 +388,48 @@ class JourneyScreens(private val host: MainActivity, state: Bundle?) {
             stamp = if (arrival.sticker) "OPEN!" else "ARRIVED!", stampSub = city.region,
             code = "FG-" + arrival.day.filter(Char::isDigit).takeLast(8)))
         val panel = pass.body
+        // FROM (last place reached before this one) ····· TO region, then the OPEN chip, as in Figma T1.
+        val from = fogo.cities.filter { it.spotId != city.spotId && profile.visited(it) }
+            .maxByOrNull { profile.visitDate(it) ?: "" }?.region
         val route = ui.row().apply { gravity = Gravity.BOTTOM }
         panel.addView(route, LinearLayout.LayoutParams(-1, -2))
+        if (from != null) {
+            val start = ui.column()
+            route.addView(start)
+            start.addView(ui.label("FROM", 11f, c.muted, pixel = true))
+            start.addView(ui.label(from, 26f, c.muted))
+            route.addView(DashedLine(host, c.dark, ui.fx(10).toFloat(), ui.fx(6).toFloat()),
+                LinearLayout.LayoutParams(ui.fx(70), ui.fx(8)).apply {
+                    marginStart = ui.fx(14); marginEnd = ui.fx(14); bottomMargin = ui.fx(16)
+                })
+        }
         val to = ui.column()
         route.addView(to)
-        to.addView(ui.label("TO", 13f, c.muted, pixel = true))
-        to.addView(ui.label(city.region, 64f, bold = true))
-        route.addView(ui.chip(if (arrival.sticker) "OPEN!" else "AGAIN", c.lime, 18f, pixel = true),
-            LinearLayout.LayoutParams(-2, -2).apply { marginStart = ui.dp(16); bottomMargin = ui.dp(14) })
-        ui.text(panel, "${city.spot} 도착", 22f, bold = true)
-        ui.text(panel, "${city.city}  ·  ${city.description}", 15f, c.muted)
+        to.addView(ui.label("TO", 11f, c.muted, pixel = true))
+        to.addView(ui.label(city.region, 48f, bold = true))
+        route.addView(ui.chip(if (arrival.sticker) "OPEN!" else "AGAIN", c.lime, 16f, pixel = true),
+            LinearLayout.LayoutParams(-2, -2).apply { marginStart = ui.fx(20); bottomMargin = ui.fx(10) })
         ticketFields(host, panel, listOf(
-            "DATE" to arrival.day, "GATE" to "P 주차",
-            "TRIP" to arrival.tags.summary(), "NO." to "${visitedCount}번째 명소"))
+            "DATE" to arrival.day.takeLast(5).replace('-', '.'), "GATE" to "P 주차",
+            "BLOCKS" to "+${profile.newBlocksToday()}", "NO." to "${visitedCount}번째 명소"))
         val rewards = listOfNotNull("${city.region} 스티커 +1".takeIf { arrival.sticker },
             "${city.material} +1".takeIf { arrival.material },
             "${region.name} 자석 +1".takeIf { arrival.magnet })
         val gift = ui.row()
-        panel.addView(gift, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = ui.dp(8) })
+        panel.addView(gift, LinearLayout.LayoutParams(-1, -2))
         catalog.boardItems.firstOrNull { it.id == city.stickerId }?.let {
-            gift.addView(stickerArt(it), LinearLayout.LayoutParams(ui.dp(78), ui.dp(78)).apply { marginEnd = ui.dp(16) })
+            gift.addView(stickerArt(it), LinearLayout.LayoutParams(ui.fx(64), ui.fx(64)).apply { marginEnd = ui.fx(16) })
         }
         val list = ui.column()
         gift.addView(list, LinearLayout.LayoutParams(0, -2, 1f))
-        list.addView(ui.label(if (rewards.isEmpty()) "이미 받은 곳이에요" else "받은 것", 13f, c.muted, pixel = rewards.isNotEmpty()))
+        list.addView(ui.label(if (rewards.isEmpty()) "${city.spot} 도착 · 이미 받은 곳이에요" else "${city.spot} 도착", 16f, c.muted))
         val chipRow = ui.row()
-        list.addView(chipRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(6) })
+        list.addView(chipRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.fx(6) })
         val chips = rewards.mapIndexed { index, reward ->
-            ui.chip(reward, if (index == 0) c.yellow else c.lime, 18f).also {
-                chipRow.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = ui.dp(10) })
+            ui.chip(reward, if (index == 0) c.yellow else c.paper, 16f).also {
+                chipRow.addView(it, LinearLayout.LayoutParams(-2, -2).apply { marginEnd = ui.fx(10) })
             }
         }
-        fogo.ambientStatus?.let { ui.text(panel, it, 15f, c.muted) }
         if (host.entering && ValueAnimator.areAnimatorsEnabled()) {
             // Ticket drops in, the stub stamp lands, then each reward pops like a stamp.
             pass.root.alpha = 0f
@@ -354,67 +449,94 @@ class JourneyScreens(private val host: MainActivity, state: Bundle?) {
                     .setDuration(220).setInterpolator(OvershootInterpolator(2f)).start()
             }
         }
-        val actions = mutableListOf<Act>()
-        if (fogo.replayCity != null) actions += Act("다른 도시 예시", enabled = !fogo.replayRunning, click = host::selectReplay)
-        actions += Act("지도판에 스티커 붙이기", true, weight = 2f) {
+        // Figma T1: two buttons centred under the ticket, 공유 (white) + 지도판에 붙이기 (navy).
+        val buttons = ui.row().apply { gravity = Gravity.CENTER }
+        sheet.addView(buttons, LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.fx(40) })
+        buttons.addView(ui.action("공유") { host.message("폰으로 보내기는 준비 중이에요") },
+            LinearLayout.LayoutParams(ui.fx(260), -2))
+        buttons.addView(ui.action("지도판에 붙이기", fill = c.navy) {
             focus(city)
             val reward = if (arrival.sticker) city.stickerId else if (arrival.magnet) city.magnetId else city.stickerId
             startPlacement(reward)
+        }, LinearLayout.LayoutParams(ui.fx(560), -2).apply { marginStart = ui.fx(20) })
+        // Demo-only controls and the cabin-light note stay off the ticket, small, under the buttons.
+        val extras = ui.row().apply { gravity = Gravity.CENTER_VERTICAL }
+        sheet.addView(extras, LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.fx(24) })
+        fogo.ambientStatus?.let { extras.addView(ui.label(it, 16f, c.white), LinearLayout.LayoutParams(0, -2, 1f)) }
+            ?: extras.addView(View(host), LinearLayout.LayoutParams(0, 1, 1f))
+        if (fogo.replayCity != null) {
+            listOf(Act("다른 도시 예시", enabled = !fogo.replayRunning, click = host::selectReplay),
+                Act("실제 차량 모드로 돌아가기", enabled = !fogo.replayRunning, click = fogo::leaveReplay)).forEach { act ->
+                extras.addView(ui.action(act.label, enabled = act.enabled, height = TAB, click = act.click),
+                    LinearLayout.LayoutParams(-2, -2).apply { marginStart = ui.fx(12) })
+            }
         }
-        ui.actions(sheet, actions)
-        if (fogo.replayCity != null) ui.actions(sheet, listOf(
-            Act("실제 차량 모드로 돌아가기", enabled = !fogo.replayRunning, click = fogo::leaveReplay)))
     }
 
     private fun board(body: LinearLayout) {
         val stored = profile.placements
         val owned = catalog.boardItems.filter { profile.owns(it.id) }
         val tabs = ui.row()
-        body.addView(tabs, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = ui.dp(12) })
-        tabs.addView(ui.action("지도") { host.go(Page.ATLAS) })
-        tabs.addView(ui.action("지도판", selected = true) {}, LinearLayout.LayoutParams(-2, -2).apply { marginStart = ui.dp(6) })
+        body.addView(tabs, LinearLayout.LayoutParams(-1, -2))
+        tabsInto(tabs, "지도판")
         tabs.addView(ui.chip("스티커 ${owned.count { !it.magnet }}", c.yellow, 15f),
-            LinearLayout.LayoutParams(-2, -2).apply { marginStart = ui.dp(16) })
+            LinearLayout.LayoutParams(-2, -2).apply { marginStart = ui.fx(20) })
         tabs.addView(ui.chip("자석 ${owned.count { it.magnet }}", c.violet, 15f, c.onViolet),
-            LinearLayout.LayoutParams(-2, -2).apply { marginStart = ui.dp(8) })
-        ui.split(body, { left -> mapCard(left, false) }, { right ->
-            val panel = ui.card(right, shadow = true)
-            ui.text(panel, "붙일 수 있는 것", 23f, bold = true)
-            ui.text(panel, "열린 블록이면 어디든 붙일 수 있어요", 15f, c.muted)
-            if (owned.isEmpty()) ui.text(panel, "첫 도착을 기록하면 스티커가 열려요.", color = c.muted)
-            fun tile(item: BoardItem): View {
-                val placed = stored.containsKey(item.id)
-                return FrameLayout(host).apply {
-                    contentDescription = item.name + if (placed) " · 배치 완료" else ""
-                    addView(if (item.magnet) magnetArt(item) else stickerArt(item), FrameLayout.LayoutParams(-1, -1))
-                    if (placed) addView(ui.label("✓", 13f, c.dark, bold = true).apply {
-                        background = ui.box(c.lime, c.dark)
-                        setPadding(ui.dp(5), 0, ui.dp(5), 0)
-                    }, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END))
-                }
+            LinearLayout.LayoutParams(-2, -2).apply { marginStart = ui.fx(10) })
+        // Figma A2: board 900×880 and a 508×920 panel side by side, 20 px under the tabs.
+        val line = if (ui.wide) ui.row().apply { gravity = Gravity.TOP } else ui.column()
+        body.addView(line, LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.fx(20) })
+        mapCard(line, false, if (ui.wide) LinearLayout.LayoutParams(0, ui.fx(880), 900f)
+            else LinearLayout.LayoutParams(-1, screenPart(.5f)))
+        val panel = ui.column().apply {
+            background = ui.box(c.paper, shadow = true)
+            setPadding(ui.fx(36), ui.fx(28), ui.fx(36), ui.fx(36))
+        }
+        line.addView(panel, if (ui.wide) LinearLayout.LayoutParams(0, ui.fx(920), 508f).apply { marginStart = ui.fx(24) }
+            else LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.fx(20) })
+        ui.text(panel, "붙일 수 있는 것", 23f, bold = true)
+        ui.text(panel, "열린 블록이면 어디든 붙일 수 있어요", 16f, c.muted)
+        if (owned.isEmpty()) ui.text(panel, "첫 도착을 기록하면 스티커가 열려요.", 16f, c.muted)
+        fun tile(item: BoardItem): View {
+            val placed = stored.containsKey(item.id)
+            return FrameLayout(host).apply {
+                contentDescription = item.name + if (placed) " · 배치 완료" else ""
+                addView(if (item.magnet) magnetArt(item) else stickerArt(item), FrameLayout.LayoutParams(-1, -1))
+                if (placed) addView(ui.label("✓", 16f, c.dark, bold = true).apply {
+                    background = ui.box(c.lime, c.dark)
+                    setPadding(ui.dp(5), 0, ui.dp(5), 0)
+                }, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END))
             }
-            val stickerRow = ui.row()
-            panel.addView(stickerRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.dp(6) })
-            owned.filter { !it.magnet }.forEach {
-                stickerRow.addView(tile(it), LinearLayout.LayoutParams(ui.dp(60), ui.dp(60)).apply { marginEnd = ui.dp(10) })
-            }
-            ui.text(panel, "자석", 16f, c.muted)
-            val magnetRow = ui.row()
-            panel.addView(magnetRow)
-            catalog.regions.forEach { region ->
-                val magnet = region.magnet
-                if (profile.owns(magnet.id)) magnetRow.addView(tile(magnet), LinearLayout.LayoutParams(ui.dp(60), ui.dp(60)).apply { marginEnd = ui.dp(10) })
-                else magnetRow.addView(View(host).apply {
-                    background = ui.box(c.fog)
-                    contentDescription = "${magnet.name} · 아직"
-                }, LinearLayout.LayoutParams(ui.dp(60), ui.dp(60)).apply { marginEnd = ui.dp(10) })
-            }
-            ui.text(panel, "시·도 하나를 다 채우면 그 지역 자석이 생겨요", 14f, c.muted)
-            panel.addView(View(host), LinearLayout.LayoutParams(1, ui.dp(if (ui.wide) 120 else 20)))
-            ui.actions(panel, listOf(
-                Act("공유") { host.message("폰으로 보내기는 준비 중이에요") },
-                Act("붙이기", true, owned.isNotEmpty()) { startPlacement(null) }))
-        })
+        }
+        val size = ui.fx(96)
+        val stickers = owned.filter { !it.magnet }
+        stickers.chunked(4).forEach { chunk ->
+            val row = ui.row()
+            panel.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.fx(12) })
+            chunk.forEach { row.addView(tile(it), LinearLayout.LayoutParams(size, size).apply { marginEnd = ui.fx(14) }) }
+        }
+        ui.text(panel, "자석", 16f, c.muted).apply { (layoutParams as LinearLayout.LayoutParams).topMargin = ui.fx(20) }
+        val magnetRow = ui.row()
+        panel.addView(magnetRow)
+        catalog.regions.forEach { region ->
+            val magnet = region.magnet
+            magnetRow.addView(if (profile.owns(magnet.id)) tile(magnet) else View(host).apply {
+                background = ui.box(c.fog)
+                contentDescription = "${magnet.name} · 아직"
+            }, LinearLayout.LayoutParams(size, size).apply { marginEnd = ui.fx(14) })
+        }
+        ui.text(panel, "시·도 하나를 다 채우면 그 지역 자석이 생겨요", 16f, c.muted).apply {
+            (layoutParams as LinearLayout.LayoutParams).topMargin = ui.fx(12)
+        }
+        panel.addView(View(host), if (ui.wide) LinearLayout.LayoutParams(1, 0, 1f) else LinearLayout.LayoutParams(1, ui.fx(20)))
+        ui.actions(panel, listOf(
+            Act("공유") { host.message("폰으로 보내기는 준비 중이에요") },
+            Act("붙이기", enabled = owned.isNotEmpty(), fill = c.yellow) { startPlacement(null) }), topMargin = 0)
+    }
+
+    private fun magnetArt(item: BoardItem): View = ui.label(item.name.substringBefore(' '), 17f, c.onViolet, bold = true).apply {
+        gravity = Gravity.CENTER
+        background = ui.box(c.violet, c.white, shadow = true)
     }
 
     private fun magnetArt(item: BoardItem): View = ui.label(item.name.substringBefore(' '), 17f, c.onViolet, bold = true).apply {
@@ -435,41 +557,49 @@ class JourneyScreens(private val host: MainActivity, state: Bundle?) {
         val owned = catalog.boardItems.filter { profile.owns(it.id) }
         val selected = owned.firstOrNull { it.id == itemId }
         val stored = profile.placements
-        ui.split(body, { left -> mapCard(left, true) }, { right ->
-            ui.strip(right, listOf("스티커" to { selectCategory(false) }, "자석" to { selectCategory(true) }),
-                if (itemCategory == 0) "스티커" else "자석")
-            val filtered = owned.filter { it.magnet == (itemCategory == 1) }
-            if (filtered.isEmpty()) ui.text(right, "보유한 아이템이 없어요.", color = c.muted)
-            ui.grid(right, filtered.map { item ->
-                ui.column().apply {
-                    gravity = Gravity.CENTER_HORIZONTAL
-                    isClickable = true
-                    setPadding(ui.dp(6), ui.dp(6), ui.dp(6), ui.dp(6))
-                    if (item.id == selected?.id) background = ui.box(c.paper, c.lime)
-                    setOnClickListener {
-                        itemId = item.id
-                        pendingCell = null
-                        host.render()
-                    }
-                    addView(if (item.magnet) magnetArt(item) else stickerArt(item), LinearLayout.LayoutParams(ui.dp(56), ui.dp(56)))
-                    val count = if (stored.containsKey(item.id)) "붙임" else "×1"
-                    addView(ui.label("${item.name.substringBefore(' ')} $count", 14f).apply {
-                        gravity = Gravity.CENTER
-                        contentDescription = item.name
-                    }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = ui.dp(4) })
-                }
-            }, if (ui.wide) 4 else 4, gap = 8)
-            ui.text(right, if (pendingCell == null) "지도에서 열린 칸을 골라요." else "선택한 칸에 ${selected?.name}을 붙일 수 있어요.", 15f, c.muted)
-            right.addView(View(host), LinearLayout.LayoutParams(1, ui.dp(if (ui.wide) 200 else 10)))
-            ui.button(right, "여기 붙이기", true, pendingCell != null && selected != null) {
-                if (!fogo.parked || selected == null) return@button
-                val block = pendingCell ?: return@button
-                if (profile.place(selected.id, block)) {
+        // Figma A3: zoomed map 1040×820 on the left; tabs, item grid and a 104 px "여기 붙이기" bottom-right.
+        val line = if (ui.wide) ui.row().apply { gravity = Gravity.TOP } else ui.column()
+        body.addView(line, LinearLayout.LayoutParams(-1, -2))
+        mapCard(line, true, if (ui.wide) LinearLayout.LayoutParams(0, ui.fx(820), 1040f)
+            else LinearLayout.LayoutParams(-1, screenPart(.5f)))
+        val right = ui.column()
+        line.addView(right, if (ui.wide) LinearLayout.LayoutParams(0, ui.fx(1020), 552f).apply { marginStart = ui.fx(32) }
+            else LinearLayout.LayoutParams(-1, -2).apply { topMargin = ui.fx(20) })
+        val stickers = owned.count { !it.magnet }
+        val magnets = owned.count { it.magnet }
+        ui.strip(right, listOf("스티커 $stickers" to { selectCategory(false) }, "자석 $magnets" to { selectCategory(true) }),
+            if (itemCategory == 0) "스티커 $stickers" else "자석 $magnets")
+        val filtered = owned.filter { it.magnet == (itemCategory == 1) }
+        if (filtered.isEmpty()) ui.text(right, "보유한 아이템이 없어요.", 16f, c.muted)
+        ui.grid(right, filtered.map { item ->
+            ui.column().apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                isClickable = true
+                setPadding(ui.fx(6), ui.fx(6), ui.fx(6), ui.fx(6))
+                if (item.id == selected?.id) background = ui.box(c.paper, c.lime)
+                setOnClickListener {
+                    itemId = item.id
                     pendingCell = null
-                    host.go(Page.BOARD)
-                } else host.message("이 칸에 붙일 수 없어요")
+                    host.render()
+                }
+                addView(if (item.magnet) magnetArt(item) else stickerArt(item), LinearLayout.LayoutParams(ui.fx(96), ui.fx(96)))
+                val count = if (stored.containsKey(item.id)) "붙임" else "×1"
+                addView(ui.label("${item.name.substringBefore(' ')} $count", 16f).apply {
+                    gravity = Gravity.CENTER
+                    contentDescription = item.name
+                }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = ui.fx(4) })
             }
-        })
+        }, 4, gap = 8)
+        ui.text(right, if (pendingCell == null) "지도에서 열린 칸을 골라요." else "선택한 칸에 ${selected?.name}을 붙일 수 있어요.", 16f, c.muted)
+        right.addView(View(host), if (ui.wide) LinearLayout.LayoutParams(1, 0, 1f) else LinearLayout.LayoutParams(1, ui.fx(16)))
+        right.addView(ui.action("여기 붙이기", primary = true, enabled = pendingCell != null && selected != null, height = 104) {
+            if (!fogo.parked || selected == null) return@action
+            val block = pendingCell ?: return@action
+            if (profile.place(selected.id, block)) {
+                pendingCell = null
+                host.go(Page.BOARD)
+            } else host.message("이 칸에 붙일 수 없어요")
+        }, LinearLayout.LayoutParams(-1, -2))
     }
 
     private fun selectCategory(magnet: Boolean) {
@@ -479,8 +609,13 @@ class JourneyScreens(private val host: MainActivity, state: Bundle?) {
         host.render()
     }
 
-    private fun mapCard(body: LinearLayout, editing: Boolean) {
-        val panel = ui.card(body, c.fog)
+    /** The board in a plain bordered frame (Figma A2/A3), sized by [params]. */
+    private fun mapCard(parent: LinearLayout, editing: Boolean, params: LinearLayout.LayoutParams) {
+        val frame = FrameLayout(host).apply {
+            background = ui.box(c.paper)
+            setPadding(ui.fx(3), ui.fx(3), ui.fx(3), ui.fx(3))
+        }
+        parent.addView(frame, params)
         val owned = catalog.boardItems.associateBy(BoardItem::id)
         val placed = profile.placements.entries.mapNotNull { (item, block) -> owned[item]?.let { block to it } }.toMap()
         val pick: ((String) -> Unit)? = if (!editing) null else fun(block: String) {
@@ -489,14 +624,13 @@ class JourneyScreens(private val host: MainActivity, state: Bundle?) {
                 host.render()
             }
         }
-        // Placement zooms in around the spot just reached (kept still while picking); the board shows it all.
+        // Placement zooms in around the spot just reached (kept still while picking); the board shows the mainland.
         val zoom = if (!editing) null else spot.point.block()
-        val board = KoreaBoard(host, ui, host.art, profile.blocks, placed,
+        frame.addView(KoreaBoard(host, ui, host.art, profile.blocks, placed,
             pendingCell.takeIf { editing }, owned[itemId].takeIf { editing }, pick, zoom,
             key = if (editing) "place:${spot.spotId}" else "board").apply {
             contentDescription = if (editing) null else "내 지도판"
-        }
-        panel.addView(board, LinearLayout.LayoutParams(-1, screenPart(if (ui.wide) .66f else .5f)))
+        }, FrameLayout.LayoutParams(-1, -1))
     }
 
     /** Height as a share of the screen, so maps fill the page whatever the UI scale. */
@@ -532,12 +666,11 @@ internal fun popup(host: MainActivity, body: LinearLayout): LinearLayout {
     body.setBackgroundColor((if (c.night) 0xff000000.toInt() else c.navy) and 0x00ffffff or (0x8c shl 24))
     body.gravity = Gravity.CENTER_VERTICAL
     if (!ui.wide) return body
-    val line = ui.row()
+    // Figma T1 ticket: 1184 px wide, centred.
+    val line = ui.row().apply { gravity = Gravity.CENTER_HORIZONTAL }
     body.addView(line, LinearLayout.LayoutParams(-1, -2))
     val sheet = ui.column()
-    line.addView(View(host), LinearLayout.LayoutParams(0, 1, 0.12f))
-    line.addView(sheet, LinearLayout.LayoutParams(0, -2, 0.76f))
-    line.addView(View(host), LinearLayout.LayoutParams(0, 1, 0.12f))
+    line.addView(sheet, LinearLayout.LayoutParams(ui.fx(1184).coerceAtMost(host.resources.displayMetrics.widthPixels), -2))
     return sheet
 }
 
@@ -582,7 +715,7 @@ internal fun ticketPass(host: MainActivity, parent: LinearLayout, spec: TicketSp
         setBackgroundColor(spec.stubColor)
         setPadding(ui.dp(18), ui.dp(20), ui.dp(18), ui.dp(18))
     }
-    root.addView(stub, if (ui.wide) LinearLayout.LayoutParams(ui.dp(230), -1) else LinearLayout.LayoutParams(-1, -2))
+    root.addView(stub, if (ui.wide) LinearLayout.LayoutParams(ui.fx(260), -1) else LinearLayout.LayoutParams(-1, -2))
     val content = if (ui.wide) stub else ui.row().apply { gravity = Gravity.CENTER }.also { stub.addView(it) }
     val stampBox = ui.column().apply {
         gravity = Gravity.CENTER
@@ -598,7 +731,7 @@ internal fun ticketPass(host: MainActivity, parent: LinearLayout, spec: TicketSp
     val code = ui.column().apply { gravity = Gravity.CENTER }
     content.addView(code)
     code.addView(ui.label("STAMP", 11f, c.dark, pixel = true).apply { gravity = Gravity.CENTER })
-    code.addView(PixelIconView(host, BARCODE_ROWS, c.dark), LinearLayout.LayoutParams(ui.dp(150), ui.dp(44)).apply {
+    code.addView(PixelIconView(host, BARCODE_ROWS, c.dark), LinearLayout.LayoutParams(ui.fx(150), ui.fx(44)).apply {
         topMargin = ui.dp(6); bottomMargin = ui.dp(6)
     })
     code.addView(ui.label(spec.code, 9f, c.dark, pixel = true).apply { gravity = Gravity.CENTER })
@@ -609,9 +742,10 @@ internal fun ticketPass(host: MainActivity, parent: LinearLayout, spec: TicketSp
 internal fun ticketFields(host: MainActivity, parent: LinearLayout, fields: List<Pair<String, String>>) {
     val ui = host.ui
     val c = ui.colors
-    parent.addView(DashedLine(host, c.muted, ui.dp(8).toFloat(), ui.dp(6).toFloat()), LinearLayout.LayoutParams(-1, ui.dp(2)))
+    // Solid rules above and below the fields, as in Figma T1.
+    parent.addView(View(host).apply { setBackgroundColor(c.dark) }, LinearLayout.LayoutParams(-1, ui.fx(2)).apply { topMargin = ui.fx(14) })
     fields.chunked(if (ui.wide) 4 else 2).forEach { line ->
-        val row = ui.row().apply { gravity = Gravity.TOP; setPadding(0, ui.dp(12), 0, ui.dp(12)) }
+        val row = ui.row().apply { gravity = Gravity.TOP; setPadding(0, ui.fx(14), 0, ui.fx(14)) }
         parent.addView(row, LinearLayout.LayoutParams(-1, -2))
         line.forEach { (label, value) ->
             val cell = ui.column()
@@ -620,8 +754,8 @@ internal fun ticketFields(host: MainActivity, parent: LinearLayout, fields: List
             cell.addView(ui.label(value, 20f, c.ink, bold = true))
         }
     }
-    parent.addView(DashedLine(host, c.muted, ui.dp(8).toFloat(), ui.dp(6).toFloat()),
-        LinearLayout.LayoutParams(-1, ui.dp(2)).apply { bottomMargin = ui.dp(12) })
+    parent.addView(View(host).apply { setBackgroundColor(c.dark) },
+        LinearLayout.LayoutParams(-1, ui.fx(2)).apply { bottomMargin = ui.fx(16) })
 }
 
 private val BARCODE_ROWS = listOf("#.##.#.###.#.##.#.##.#.#", "#.##.#.###.#.##.#.##.#.#", "#.##.#.###.#.##.#.##.#.#")

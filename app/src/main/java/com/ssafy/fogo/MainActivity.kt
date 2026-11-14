@@ -142,7 +142,8 @@ class MainActivity : Activity() {
             header(content)
             content(content, oldScroll)
         } else {
-            header(root)
+            // Figma T1: the arrival ticket sits on a full-screen dim, no header.
+            if (page != Page.ARRIVAL) header(root)
             if (usesRail) {
                 val tabs = ui.column().apply {
                     setBackgroundColor(colors.yellow)
@@ -224,7 +225,8 @@ class MainActivity : Activity() {
     }
 
     private fun content(parent: LinearLayout, oldScroll: Int) {
-        val body = ui.column().apply { setPadding(ui.dp(18), ui.dp(16), ui.dp(18), ui.dp(20)) }
+        // Figma frames: content 40 px in from the rail, 8 px under the header.
+        val body = ui.column().apply { setPadding(ui.fx(40), ui.fx(8), ui.fx(40), ui.fx(20)) }
         val window = ScrollView(this).apply { isFillViewport = true; addView(body) }
         parent.addView(window, LinearLayout.LayoutParams(-1, 0, 1f))
         scroll = window
